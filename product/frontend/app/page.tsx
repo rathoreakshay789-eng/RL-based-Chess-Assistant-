@@ -177,6 +177,7 @@ export default function Home() {
           play_context:contextSource==="play_engine"?{
             source:"play_engine",difficulty,moves:playHistory,current_fen:fen,
             game_over:new Chess(fen).isGameOver(),result:(()=>{const c=new Chess(fen);return c.isCheckmate()?(c.turn()==="w"?"0-1":"1-0"):c.isGameOver()?"1/2-1/2":null})(),
+                      }:null,
           history:[...chat,{role:"user",content:q}],
           personality:"encouraging"
         })
