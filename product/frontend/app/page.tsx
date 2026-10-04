@@ -401,7 +401,266 @@ function Board({
     </div>
   );
 }
+function GameReplay({
+  game,
+  onClose
+}: {
+  game: any;
+  onClose: () => void;
+}) {
+  const parsed = useMemo(() => {
+    try {
+      const loaded = new Chess();
 
+      loaded.loadPgn(game.pgn);
+
+      const history = loaded.history({
+        verbose: true
+      });
+
+      if (history.length === 0) {
+        return {
+          moves: [],
+          positions: [new Chess().fen()]
+        };
+      }
+
+      // Position before every move.
+      const positions = history.map(
+        (m: any) => m.before
+      );
+
+      // Add final position.
+      const last =
+        history[history.length - 1];
+
+      const finalBoard = new Chess(
+        last.before
+      );
+
+      finalBoard.move(last.san);
+
+      positions.push(
+        finalBoard.fen()
+      );
+
+      return {
+        moves: history,
+        positions
+      };
+    } catch (e) {
+      return {
+        moves: [],
+        positions: [new Chess().fen()],
+        error:
+          e instanceof Error
+            ? e.message
+            : "Could not load this game"
+      };
+    }
+  }, [game.pgn]);
+
+  const [moveIndex, setMoveIndex] =
+    useState(0);
+
+  useEffect(() => {
+    setMoveIndex(0);
+  }, [game.id]);
+
+  const moves = parsed.moves;
+
+  const position =
+    parsed.positions[moveIndex] ||
+    new Chess().fen();
+
+  const currentMove =
+    moveIndex > 0
+      ? moves[moveIndex - 1]
+      : null;
+
+  return (
+    <Card className="wide replay-card">
+      <div className="section-head">
+        <div>
+          <span className="eyebrow">
+            GAME REPLAY · GAME #{game.id}
+          </span>
+
+          <h2>
+            {game.result || "Saved game"}
+          </h2>
+
+          <p>
+            {new Date(
+              game.played_at
+            ).toLocaleString()}{" "}
+            · {game.difficulty || "—"} ·{" "}
+            {moves.length} moves
+          </p>
+        </div>
+
+        <button
+          className="ghost-btn"
+          onClick={onClose}
+        >
+          Close replay
+        </button>
+      </div>
+
+      {parsed.error ? (
+        <div className="empty big">
+          {parsed.error}
+        </div>
+      ) : (
+        <div className="replay-layout">
+          {/* BOARD + CONTROLS */}
+          <div>
+            <Board
+              fen={position}
+              side="white"
+              onMove={() => {}}
+              disabled
+            />
+
+            <div className="replay-controls">
+              <button
+                onClick={() =>
+                  setMoveIndex(0)
+                }
+                disabled={moveIndex === 0}
+              >
+                ⏮
+              </button>
+
+              <button
+                onClick={() =>
+                  setMoveIndex(i =>
+                    Math.max(0, i - 1)
+                  )
+                }
+                disabled={moveIndex === 0}
+              >
+                ◀
+              </button>
+
+              <span>
+                {moveIndex === 0
+                  ? "Starting position"
+                  : `${Math.ceil(
+                      moveIndex / 2
+                    )}${
+                      moveIndex % 2 === 1
+                        ? "."
+                        : "..."
+                    } ${
+                      currentMove?.san ||
+                      ""
+                    }`}
+              </span>
+
+              <button
+                onClick={() =>
+                  setMoveIndex(i =>
+                    Math.min(
+                      moves.length,
+                      i + 1
+                    )
+                  )
+                }
+                disabled={
+                  moveIndex ===
+                  moves.length
+                }
+              >
+                ▶
+              </button>
+
+              <button
+                onClick={() =>
+                  setMoveIndex(
+                    moves.length
+                  )
+                }
+                disabled={
+                  moveIndex ===
+                  moves.length
+                }
+              >
+                ⏭
+              </button>
+            </div>
+          </div>
+
+          {/* GAME INFORMATION + MOVES */}
+          <div className="replay-moves">
+            <div className="replay-players">
+              <div>
+                <span>WHITE</span>
+
+                <b>
+                  {game.side === "white"
+                    ? USER
+                    : "ChessRL AI"}
+                </b>
+              </div>
+
+              <div>
+                <span>BLACK</span>
+
+                <b>
+                  {game.side === "black"
+                    ? USER
+                    : "ChessRL AI"}
+                </b>
+              </div>
+            </div>
+
+            <div className="replay-move-list">
+              {moves.map(
+                (
+                  m: any,
+                  i: number
+                ) => {
+                  const number =
+                    Math.floor(i / 2) + 1;
+
+                  const active =
+                    moveIndex === i + 1;
+
+                  return (
+                    <button
+                      key={i}
+                      className={
+                        active
+                          ? "replay-move active"
+                          : "replay-move"
+                      }
+                      onClick={() =>
+                        setMoveIndex(
+                          i + 1
+                        )
+                      }
+                    >
+                      <span>
+                        {i % 2 === 0
+                          ? `${number}.`
+                          : `${number}...`}
+                      </span>
+
+                      <b>
+                        {m.san}
+                      </b>
+                    </button>
+                  );
+                }
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
 function Login({
   onAuth
 }: {
@@ -649,6 +908,8 @@ function App({
 
   const [games, setGames] =
     useState<any[]>([]);
+  const [selectedGame, setSelectedGame] =
+  useState<any | null>(null);
 
   const [puzzles, setPuzzles] =
     useState<any[]>([]);
@@ -1904,69 +2165,59 @@ function App({
           </Card>
 
           <Card className="wide">
-            <span className="eyebrow">
-              GAME HISTORY
-            </span>
+  <span className="eyebrow">
+    GAME HISTORY
+  </span>
 
-            <h2>
-              Games vs engine
-            </h2>
+  <h2>
+    Games vs engine
+  </h2>
 
-            <div className="history">
-              {games.length ===
-              0 ? (
-                <div className="empty">
-                  No saved games yet.
-                  Finish a game and
-                  it will appear here.
-                </div>
-              ) : (
-                games.map(
-                  (g: any) => (
-                    <div
-                      key={g.id}
-                    >
-                      <span>
-                        {new Date(
-                          g.played_at
-                        ).toLocaleString()}
-                      </span>
+  <p className="replay-hint">
+    Click any saved game to open the full board replay.
+  </p>
 
-                      <b>
-                        {g.result}
-                      </b>
+  <div className="history">
+    {games.length === 0 ? (
+      <div className="empty">
+        No saved games yet. Finish a game and it will appear here.
+      </div>
+    ) : (
+      games.map((g: any) => (
+        <button
+          className={`saved-game-row ${
+            selectedGame?.id === g.id ? "selected" : ""
+          }`}
+          key={g.id}
+          onClick={() => setSelectedGame(g)}
+        >
+          <span>
+            {new Date(g.played_at).toLocaleString()}
+          </span>
 
-                      <span>
-                        {
-                          g.difficulty
-                        }{" "}
-                        ·{" "}
-                        {
-                          g.num_moves
-                        }{" "}
-                        moves
-                        {g.performance !=
-                          null &&
-                        g.elo_after !=
-                          null
-                          ? ` · ${
-                              g.elo_after -
-                              g.elo_before >=
-                              0
-                                ? "+"
-                                : ""
-                            }${
-                              g.elo_after -
-                              g.elo_before
-                            } Elo`
-                          : ""}
-                      </span>
-                    </div>
-                  )
-                )
-              )}
-            </div>
-          </Card>
+          <b>
+            {g.result}
+          </b>
+
+          <span>
+            {g.difficulty} · {g.num_moves} moves
+          </span>
+
+          <span className="saved-game-open">
+            View game →
+          </span>
+        </button>
+      ))
+    )}
+  </div>
+</Card>
+
+{selectedGame && (
+  <GameReplay
+    game={selectedGame}
+    onClose={() => setSelectedGame(null)}
+  />
+)}
         </section>
       )}
 
