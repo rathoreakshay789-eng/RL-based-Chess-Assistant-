@@ -23,7 +23,7 @@ def play_one_game(game, mcts, network):
             canonical_state = state.copy()
 
         action_probs = mcts.search(canonical_state)
-        training_data.append((state.copy(), action_probs, player))
+        training_data.append((canonical_state.copy(), action_probs, player))
 
         move_number = state.fullmove_number
         if move_number < Config.temp_threshold:
@@ -48,11 +48,11 @@ def play_one_game(game, mcts, network):
             return_data = []
             for hist_state, hist_probs, hist_player in training_data:
                 if value == 0:
-                    hist_value = 0
+                    hist_value = 0.0
                 elif hist_player == winner_player:
-                    hist_value = value
+                    hist_value = 1.0     # side to move at this state went on to win
                 else:
-                    hist_value = game.get_opponent_value(value)
+                    hist_value = -1.0
                 return_data.append((hist_state, hist_probs, hist_value))
             return return_data
 
