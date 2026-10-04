@@ -73,7 +73,7 @@ class MCTS:
         for _ in range(self.args["num_searches"]):
             node = root
             path = [node]
-            while node.visit_count > 0 and node.policy is not None:
+            while node.policy is not None:
                 action = node.select()
                 if action is None:
                     break
