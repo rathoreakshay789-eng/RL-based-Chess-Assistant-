@@ -15,6 +15,23 @@ const glyph: Record<string, string> = {
   bK:"♚",bQ:"♛",bR:"♜",bB:"♝",bN:"♞",bP:"♟"
 };
 
+
+const ICONS: Record<string, string> = {
+  play: "M3 8l5 4 4-7 4 7 5-4-2 11H5L3 8zM5 21h14",
+  analysis: "M3 3v18h18M7 15l4-4 3 3 6-7",
+  puzzles: "M12 3v3M12 18v3M3 12h3M18 12h3M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10z",
+  coach: "M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z",
+  rules: "M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2V5zM6 19h13",
+  profile: "M20 21a8 8 0 0 0-16 0M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"
+};
+const TITLES: Record<string, [string, string]> = {
+  play: ["Play", "Take on the RL engine at your level."],
+  analysis: ["Game analysis", "Upload a PGN and review every move."],
+  puzzles: ["Puzzles", "Sharpen your tactics."],
+  coach: ["AI coach", "Ask anything about your games or chess ideas."],
+  rules: ["Rulebook", "Search the laws of chess."],
+  profile: ["Profile", "Your rating, stats and saved games."]
+};
 async function api(path: string, options?: RequestInit) {
   const headers: any = {
     ...(options?.headers as any),
@@ -357,19 +374,7 @@ function Board({
                 }`}
               >
                 {p && (
-                  <span
-                    className={`piece ${
-                      p.color === "w"
-                        ? "white-piece"
-                        : "black-piece"
-                    }`}
-                  >
-                    {
-                      glyph[
-                        `${p.color}${p.type.toUpperCase()}`
-                      ]
-                    }
-                  </span>
+                  <img className={`piece-img ${p.color === "w" ? "white-piece" : "black-piece"}`} src={`/pieces/${p.color}${p.type.toUpperCase()}.svg`} alt="" draggable={false} />
                 )}
 
                 {isLegal && (
@@ -1689,8 +1694,7 @@ function App({
                 }
               }}
             >
-              {x}
-            </button>
+              <svg viewBox="0 0 24 24" className="ico"><path d={ICONS[x]} /></svg><span>{x}</span></button>
           ))}
         </nav>
 
@@ -1707,36 +1711,14 @@ function App({
         </div>
       </header>
 
-      <section className="hero">
+      <section className="pagehead">
         <div>
-          <div className="eyebrow">
-            REINFORCEMENT LEARNING •
-            CHESS ANALYTICS
-          </div>
-
-          <h1>
-            Play sharper.
-            <br />
-            <em>Learn faster.</em>
-          </h1>
-
-          <p>
-            Your chess engine,
-            analysis lab, tactical
-            trainer and AI coach —
-            in one focused workspace.
-          </p>
+          <h1>{TITLES[tab][0]}</h1>
+          <p>{TITLES[tab][1]}</p>
         </div>
-
-        <div className="hero-stat">
-          <b>
-            {profile?.est_elo ||
-              "—"}
-          </b>
-
-          <span>
-            EST. ELO
-          </span>
+        <div className="elo-chip">
+          <b>{profile?.est_elo || "—"}</b>
+          <span>Est. Elo</span>
         </div>
       </section>
 
