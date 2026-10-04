@@ -25,6 +25,38 @@ function Card({ children, className="" }: {children:React.ReactNode;className?:s
   return <div className={`card ${className}`}>{children}</div>;
 }
 
+let _ac: AudioContext | null = null;
+function playSound(kind: "move"|"capture"|"check"|"end") {
+  try {
+    const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!AC) return;
+    _ac = _ac || new AC();
+    const ac = _ac as AudioContext;
+    if (ac.state === "suspended") ac.resume();
+    const t = ac.currentTime;
+    const tone = (f:number, st:number, d:number, type:OscillatorType, v:number) => {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = type; o.frequency.setValueAtTime(f, t+st);
+      o.frequency.exponentialRampToValueAtTime(f*0.5, t+st+d);
+      g.gain.setValueAtTime(v, t+st); g.gain.exponentialRampToValueAtTime(0.0001, t+st+d);
+      o.connect(g); g.connect(ac.destination); o.start(t+st); o.stop(t+st+d);
+    };
+    const noise = (st:number, d:number, v:number) => {
+      const n = Math.floor(ac.sampleRate*d), buf = ac.createBuffer(1,n,ac.sampleRate), data = buf.getChannelData(0);
+      for (let i=0;i<n;i++) data[i] = (Math.random()*2-1)*(1-i/n);
+      const src = ac.createBufferSource(), g = ac.createGain();
+      src.buffer = buf; g.gain.value = v; src.connect(g); g.connect(ac.destination); src.start(t+st);
+    };
+    if (kind==="move") { tone(320,0,0.09,"triangle",0.4); noise(0,0.03,0.25); }
+    else if (kind==="capture") { tone(190,0,0.16,"triangle",0.6); noise(0,0.09,0.5); }
+    else if (kind==="check") { tone(900,0,0.12,"square",0.12); tone(680,0.13,0.2,"square",0.12); }
+    else { tone(520,0,0.25,"sine",0.3); tone(390,0.22,0.25,"sine",0.3); tone(260,0.44,0.45,"sine",0.3); }
+  } catch {}
+}
+function soundOf(m:any, g:Chess) {
+  playSound(g.isGameOver() ? "end" : g.inCheck() ? "check" : m?.captured ? "capture" : "move");
+}
+
 function Board({
   fen, side, onMove, disabled=false
 }: {
@@ -36,6 +68,8 @@ function Board({
   const files = side === "white" ? ["a","b","c","d","e","f","g","h"] : ["h","g","f","e","d","c","b","a"];
   const ranks = side === "white" ? ["8","7","6","5","4","3","2","1"] : ["1","2","3","4","5","6","7","8"];
 
+  const checkSq = game.inCheck() ? game.board().flat().find(p => p && p.type==="k" && p.color===game.turn())?.square : undefined;
+
   const click = (sq:Square) => {
     if (disabled || game.isGameOver()) return;
     if (selected && legal.includes(sq)) {
@@ -43,6 +77,7 @@ function Board({
       const probe = new Chess(fen);
       try {
         const move = probe.move({from:selected,to:sq,promotion:"q"});
+        soundOf(move, probe);
         onMove(move.from + move.to + (move.promotion || ""));
       } catch {}
       setSelected(null); setLegal([]);
@@ -67,7 +102,7 @@ function Board({
         return <button
           key={sq}
           onClick={() => click(sq)}
-          className={`square ${dark ? "dark" : "light"} ${isSelected ? "selected" : ""}`}
+          className={`square ${dark ? "dark" : "light"} ${isSelected ? "selected" : ""} ${checkSq===sq ? "check" : ""}`}
         >
           {p && <span className={`piece ${p.color==="w"?"white-piece":"black-piece"}`}>{glyph[`${p.color}${p.type.toUpperCase()}`]}</span>}
           {isLegal && <span className={p ? "capture-dot capture" : "capture-dot"} />}
@@ -109,18 +144,36 @@ export default function Home() {
   };
 
   const playMove = async (move:string) => {
+    const prevFen = fen;
     setThinking(true); setPlayError("");
+    try {
+      const g = new Chess(prevFen);
+      g.move({from:move.slice(0,2),to:move.slice(2,4),promotion:move[4]});
+      setFen(g.fen());
+    } catch {}
     try {
       const data = await api("/engine_move", {
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({fen,move,difficulty,engine_type:engineType})
+        body:JSON.stringify({fen:prevFen,move,difficulty,engine_type:engineType})
       });
-      if (!data.success) { setPlayError(data.message || "Illegal move"); return; }
+      if (!data.success) { setFen(prevFen); setPlayError(data.message || "Illegal move"); return; }
+      if (data.engine_move) {
+        try {
+          const g = new Chess(prevFen);
+          g.move({from:move.slice(0,2),to:move.slice(2,4),promotion:move[4]});
+          const em = String(data.engine_move);
+          const m = em.length>=4 && !/[^a-h1-8qrbn]/.test(em)
+            ? g.move({from:em.slice(0,2),to:em.slice(2,4),promotion:em[4]})
+            : g.move(em);
+          soundOf(m, g);
+        } catch {}
+      }
       setFen(data.fen);
       setPlayHistory(h => [...h,{user_move:move,engine_move:data.engine_move}]);
       if (data.game_over) setMessage(`Game over — ${data.result}`);
     } catch(e) {
+      setFen(prevFen);
       setPlayError(e instanceof Error ? e.message : "Engine unavailable");
     } finally { setThinking(false); }
   };
@@ -176,8 +229,8 @@ export default function Home() {
           context_source:contextSource,
           play_context:contextSource==="play_engine"?{
             source:"play_engine",difficulty,moves:playHistory,current_fen:fen,
-            game_over:new Chess(fen).isGameOver(),result:(()=>{const c=new Chess(fen);return c.isCheckmate()?(c.turn()==="w"?"0-1":"1-0"):c.isGameOver()?"1/2-1/2":null})(),
-                      }:null,
+            game_over:new Chess(fen).isGameOver(),result:(()=>{const c=new Chess(fen);return c.isCheckmate()?(c.turn()==="w"?"0-1":"1-0"):c.isGameOver()?"1/2-1/2":null})()
+          }:null,
           history:[...chat,{role:"user",content:q}],
           personality:"encouraging"
         })
