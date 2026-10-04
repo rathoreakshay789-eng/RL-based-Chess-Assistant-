@@ -57,6 +57,9 @@ def play_one_game(game, mcts, network):
             return return_data
 
         player = game.get_opponent(player)
+        if len(training_data) >= getattr(Config, 'max_game_plies', 300):
+            # adjudicate very long games as draws so one game can't run forever
+            return [(st, pr, 0.0) for st, pr, _ in training_data]
 
 
 def run_self_play(network, iteration=0, args=None):
