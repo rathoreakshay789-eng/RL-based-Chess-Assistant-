@@ -204,3 +204,58 @@ footer{text-align:center;border-top:1px solid var(--line);padding:30px;color:#52
     display: none;
   }
 }
+.puzzle-status{
+  margin-top:12px;
+  padding:12px 14px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:#0b0f15;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+}
+
+.puzzle-status b{
+  font-size:11px;
+}
+
+.puzzle-status span{
+  color:var(--muted);
+  font-size:10px;
+}
+
+.puzzle-status.wrong{
+  border-color:#8f3434;
+}
+
+.puzzle-status.solved{
+  border-color:#85702d;
+}
+
+.puzzle-status button{
+  margin-left:auto;
+}
+
+.puzzle-help,
+.puzzle-error,
+.puzzle-success{
+  margin:16px 0;
+  padding:12px;
+  border-radius:9px;
+  background:#0b0f15;
+  border:1px solid var(--line);
+  color:var(--muted);
+  font-size:11px;
+  line-height:1.5;
+}
+
+.puzzle-error{
+  border-color:#8f3434;
+  color:#e9a0a0;
+}
+
+.puzzle-success{
+  border-color:#85702d;
+  color:#d9c77b;
+}
