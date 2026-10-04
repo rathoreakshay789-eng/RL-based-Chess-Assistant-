@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Chess, Square } from "chess.js";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -433,6 +433,31 @@ function PuzzleTrainer({
     "playing" | "wrong" | "solved"
   >("playing");
   const [lastMove, setLastMove] = useState("");
+  const [showing, setShowing] = useState(false);
+  const timers = useRef<number[]>([]);
+  const startRef = useRef("");
+  const clearTimers = () => {
+    timers.current.forEach(t => clearTimeout(t));
+    timers.current = [];
+  };
+  const revealSolution = (solution: string[], from: number, fen: string) => {
+    clearTimers();
+    const rest = solution.slice(from);
+    if (!rest.length) return;
+    setShowing(true);
+    const g = new Chess(fen);
+    rest.forEach((m, i) => {
+      const t = window.setTimeout(() => {
+        try {
+          const mv = g.move({ from: m.slice(0, 2), to: m.slice(2, 4), promotion: m[4] as any });
+          soundOf(mv, g);
+          setPositionFen(g.fen());
+        } catch {}
+        if (i === rest.length - 1) setShowing(false);
+      }, 800 + i * 900);
+      timers.current.push(t);
+    });
+  };
 
   useEffect(() => {
     if (!puzzle) return;
@@ -451,11 +476,17 @@ function PuzzleTrainer({
         });
       }
 
+      clearTimers();
+      setShowing(false);
+      startRef.current = g.fen();
       setPositionFen(g.fen());
       setSolutionIndex(0);
       setStatus("playing");
       setLastMove("");
     } catch {
+      clearTimers();
+      setShowing(false);
+      startRef.current = puzzle.fen;
       setPositionFen(puzzle.fen);
       setSolutionIndex(0);
       setStatus("playing");
@@ -475,6 +506,7 @@ function PuzzleTrainer({
     if (move !== expected) {
       setStatus("wrong");
       setLastMove(move);
+      revealSolution(solution, solutionIndex, positionFen);
       return;
     }
 
@@ -537,6 +569,10 @@ function PuzzleTrainer({
   };
 
   const retry = () => {
+    clearTimers();
+    setShowing(false);
+    setPositionFen(startRef.current || positionFen);
+    setSolutionIndex(0);
     setStatus("playing");
     setLastMove("");
   };
@@ -571,14 +607,13 @@ function PuzzleTrainer({
 
           {status === "wrong" && (
             <>
-              <b>Try again</b>
-              <span>That wasn't the correct move.</span>
-              <button
-                className="ghost-btn"
-                onClick={retry}
-              >
-                Retry
-              </button>
+              <b>{showing ? "Not quite — watch the solution" : "Solution shown"}</b>
+              <span>{showing ? "Playing the correct line…" : "That was the correct line."}</span>
+              {!showing && (
+                <button className="ghost-btn" onClick={retry}>
+                  Retry puzzle
+                </button>
+              )}
             </>
           )}
 
@@ -613,8 +648,7 @@ function PuzzleTrainer({
 
         {status === "wrong" && (
           <div className="puzzle-error">
-            Incorrect move. Look for another tactical
-            idea.
+            Incorrect. The correct sequence is being played on the board.
           </div>
         )}
 
