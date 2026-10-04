@@ -434,6 +434,7 @@ function PuzzleTrainer({
   >("playing");
   const [lastMove, setLastMove] = useState("");
   const [showing, setShowing] = useState(false);
+  const [revealFailed, setRevealFailed] = useState(false);
   const timers = useRef<number[]>([]);
   const startRef = useRef("");
   const clearTimers = () => {
@@ -442,17 +443,24 @@ function PuzzleTrainer({
   };
   const revealSolution = (solution: string[], from: number, fen: string) => {
     clearTimers();
+    setRevealFailed(false);
     const rest = solution.slice(from);
     if (!rest.length) return;
     setShowing(true);
     const g = new Chess(fen);
     rest.forEach((m, i) => {
       const t = window.setTimeout(() => {
+        let mv: any = null;
         try {
-          const mv = g.move({ from: m.slice(0, 2), to: m.slice(2, 4), promotion: m[4] as any });
-          soundOf(mv, g);
-          setPositionFen(g.fen());
-        } catch {}
+          mv = g.move({ from: m.slice(0, 2), to: m.slice(2, 4), promotion: m[4] as any });
+        } catch {
+          clearTimers();
+          setShowing(false);
+          setRevealFailed(true);
+          return;
+        }
+        setPositionFen(g.fen());
+        try { soundOf(mv, g); } catch {}
         if (i === rest.length - 1) setShowing(false);
       }, 800 + i * 900);
       timers.current.push(t);
@@ -580,7 +588,7 @@ function PuzzleTrainer({
   if (!positionFen) return null;
 
   const playerSide: Side =
-    new Chess(positionFen).turn() === "w"
+    new Chess(startRef.current || positionFen).turn() === "w"
       ? "white"
       : "black";
 
@@ -608,7 +616,7 @@ function PuzzleTrainer({
           {status === "wrong" && (
             <>
               <b>{showing ? "Not quite — watch the solution" : "Solution shown"}</b>
-              <span>{showing ? "Playing the correct line…" : "That was the correct line."}</span>
+              <span>{showing ? "Playing the correct line…" : revealFailed ? "This puzzle's stored solution is invalid. Try the next one." : "That was the correct line."}</span>
               {!showing && (
                 <button className="ghost-btn" onClick={retry}>
                   Retry puzzle
