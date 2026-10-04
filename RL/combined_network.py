@@ -1,5 +1,8 @@
-import sys
-from features import HalfKPExtractor
+import os, sys
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from RL.chess_env.features import HalfKPExtractor
 
 _extractor = HalfKPExtractor()
 
