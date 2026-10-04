@@ -224,11 +224,14 @@ function App({ user, onLogout }: { user:string; onLogout:()=>void }) {
       setFen(g.fen());
     } catch {}
     try {
-      const data = await api("/engine_move", {
+      const callEngine = () => api("/engine_move", {
         method:"POST",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({fen:prevFen,move,difficulty,engine_type:engineType})
       });
+      let data;
+      try { data = await callEngine(); }
+      catch { await new Promise(r => setTimeout(r, 3000)); data = await callEngine(); }
       if (!data.success) { setFen(prevFen); setPlayError(data.message || "Illegal move"); return; }
       if (data.engine_move) {
         try {
@@ -257,6 +260,29 @@ function App({ user, onLogout }: { user:string; onLogout:()=>void }) {
     try { const d = await api("/games"); setGames(d.games || []); } catch {}
   };
 
+  const trackRating = (gid:number, result:string) => {
+    let tries = 0;
+    const tick = async () => {
+      tries++;
+      try {
+        const d = await api("/games");
+        const list = d.games || [];
+        setGames(list);
+        const g = list.find((x:any) => x.id === gid);
+        if (g && g.elo_after != null) {
+          const diff = g.elo_after - g.elo_before;
+          setMessage(g.performance == null
+            ? `Game over — ${result} · too short to rate`
+            : `Game over — ${result} · Rating ${g.elo_before} → ${g.elo_after} (${diff>=0?"+":""}${diff})`);
+          loadProfile();
+          return;
+        }
+      } catch {}
+      if (tries < 24) setTimeout(tick, 5000);
+    };
+    setTimeout(tick, 4000);
+  };
+
   const saveGame = async (hist:any[], result:string) => {
     try {
       const g = new Chess(); let n = 0;
@@ -267,10 +293,12 @@ function App({ user, onLogout }: { user:string; onLogout:()=>void }) {
         n++;
       }
       g.setHeader("Event","ChessRL game");
-      g.setHeader("White", side==="white" ? USER : "ChessRL engine");
-      g.setHeader("Black", side==="white" ? "ChessRL engine" : USER);
-      await api("/games", {method:"POST",headers:{"Content-Type":"application/json"},
+      g.setHeader("White", USER);
+      g.setHeader("Black", "ChessRL engine");
+      const saved = await api("/games", {method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({pgn:g.pgn(),result:String(result||""),difficulty,engine_type:engineType,side,num_moves:n})});
+      setMessage(`Game over — ${result} · Stockfish is rating your game…`);
+      trackRating(saved.game_id, String(result||""));
       loadGames();
     } catch {}
   };
@@ -453,7 +481,7 @@ function App({ user, onLogout }: { user:string; onLogout:()=>void }) {
     {tab==="profile" && <section className="content-grid">
       <Card><span className="eyebrow">PLAYER</span><div className="profile-score">{profile?.est_elo||800}</div><p>Estimated rating</p><div className="profile-line"><span>Games analyzed</span><b>{profile?.games_played||0}</b></div><div className="profile-line"><span>Avg CP loss</span><b>{profile?.avg_cp_loss||0}</b></div><div className="profile-line"><span>Primary weakness</span><b>{profile?.primary_weakness||"general"}</b></div></Card>
       <Card className="wide"><span className="eyebrow">RECENT GAMES</span><h2>Progress</h2><div className="history">{(profile?.recent_games||[]).map((g:any,i:number)=><div key={i}><span>{new Date(g.played_at).toLocaleDateString()}</span><b>{g.primary_weakness}</b><span>{g.avg_cp_loss} cp loss</span></div>)}</div></Card>
-      <Card className="wide"><span className="eyebrow">GAME HISTORY</span><h2>Games vs engine</h2><div className="history">{games.length===0?<div className="empty">No saved games yet. Finish a game and it will appear here.</div>:games.map((g:any)=><div key={g.id}><span>{new Date(g.played_at).toLocaleString()}</span><b>{g.result}</b><span>{g.difficulty} · {g.engine_type} · {g.num_moves} moves</span></div>)}</div></Card>
+      <Card className="wide"><span className="eyebrow">GAME HISTORY</span><h2>Games vs engine</h2><div className="history">{games.length===0?<div className="empty">No saved games yet. Finish a game and it will appear here.</div>:games.map((g:any)=><div key={g.id}><span>{new Date(g.played_at).toLocaleString()}</span><b>{g.result}</b><span>{g.difficulty} · {g.num_moves} moves{g.performance!=null&&g.elo_after!=null?` · ${g.elo_after-g.elo_before>=0?"+":""}${g.elo_after-g.elo_before} Elo`:""}</span></div>)}</div></Card>
     </section>}
 
     <footer>CHESSRL <span>•</span> YOUR ENGINE. YOUR GAMES. YOUR PROGRESS.</footer>
