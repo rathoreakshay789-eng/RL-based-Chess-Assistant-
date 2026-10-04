@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Chess, Square } from "chess.js";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const USER = "default_user";
+let USER = "default_user";
+let TOKEN = "";
 
 type Tab = "play" | "analysis" | "puzzles" | "coach" | "rules" | "profile";
 type Side = "white" | "black";
@@ -15,8 +16,10 @@ const glyph: Record<string, string> = {
 };
 
 async function api(path: string, options?: RequestInit) {
-  const r = await fetch(`${API}${path}`, options);
+  const headers: any = { ...(options?.headers as any), ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}) };
+  const r = await fetch(`${API}${path}`, { ...options, headers });
   const data = await r.json().catch(() => ({}));
+  if (r.status === 401 && TOKEN) { try { localStorage.removeItem("chessrl_auth"); } catch {} location.reload(); }
   if (!r.ok) throw new Error(data.detail || "Request failed");
   return data;
 }
@@ -133,7 +136,56 @@ function Board({
   </div>;
 }
 
+function Login({ onAuth }: { onAuth:(u:string,t:string)=>void }) {
+  const [mode,setMode] = useState<"login"|"register">("login");
+  const [u,setU] = useState(""); const [pw,setPw] = useState("");
+  const [err,setErr] = useState(""); const [busy,setBusy] = useState(false);
+  const submit = async () => {
+    setBusy(true); setErr("");
+    try {
+      const d = await api(`/auth/${mode}`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u,password:pw})});
+      onAuth(d.username, d.token);
+    } catch(e) { setErr(e instanceof Error ? e.message : "Something went wrong"); }
+    finally { setBusy(false); }
+  };
+  return <main className="login-page"><div className="login-card">
+    <div className="brand-mark">♞</div>
+    <h1>Chess<span>RL</span></h1>
+    <p>{mode==="login" ? "Sign in to continue" : "Create your account"}</p>
+    <input placeholder="Username" value={u} onChange={e=>setU(e.target.value)} autoComplete="username"/>
+    <input type="password" placeholder="Password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter") submit(); }} autoComplete={mode==="login"?"current-password":"new-password"}/>
+    {err && <div className="login-err">{err}</div>}
+    <button className="gold-btn" onClick={submit} disabled={busy||!u||!pw}>{busy ? "Please wait…" : mode==="login" ? "Sign in" : "Create account"}</button>
+    <button className="link-btn" onClick={()=>{ setMode(mode==="login"?"register":"login"); setErr(""); }}>{mode==="login" ? "New here? Create an account" : "Already have an account? Sign in"}</button>
+    <small>The first request can take up to a minute while the server wakes up.</small>
+  </div></main>;
+}
+
 export default function Home() {
+  const [auth,setAuth] = useState<{user:string;token:string}|null>(null);
+  const [ready,setReady] = useState(false);
+  useEffect(() => {
+    try { const raw = localStorage.getItem("chessrl_auth"); if (raw) { const a = JSON.parse(raw); TOKEN = a.token; USER = a.user; setAuth(a); } } catch {}
+    setReady(true);
+  }, []);
+  const onAuth = (user:string, token:string) => {
+    TOKEN = token; USER = user;
+    const a = {user, token};
+    try { localStorage.setItem("chessrl_auth", JSON.stringify(a)); } catch {}
+    setAuth(a);
+  };
+  const logout = () => {
+    TOKEN = ""; USER = "default_user";
+    try { localStorage.removeItem("chessrl_auth"); } catch {}
+    setAuth(null);
+  };
+  if (!ready) return null;
+  if (!auth) return <Login onAuth={onAuth}/>;
+  return <App key={auth.user} user={auth.user} onLogout={logout}/>;
+}
+
+function App({ user, onLogout }: { user:string; onLogout:()=>void }) {
+  USER = user;
   const [tab,setTab] = useState<Tab>("play");
   const [fen,setFen] = useState(new Chess().fen());
   const [side,setSide] = useState<Side>("white");
@@ -145,6 +197,7 @@ export default function Home() {
   const [analysis,setAnalysis] = useState<any>(null);
   const [analysisId,setAnalysisId] = useState<number|null>(null);
   const [profile,setProfile] = useState<any>(null);
+  const [games,setGames] = useState<any[]>([]);
   const [puzzles,setPuzzles] = useState<any[]>([]);
   const [puzzleIndex,setPuzzleIndex] = useState(0);
   const [chat,setChat] = useState<any[]>([]);
@@ -190,11 +243,36 @@ export default function Home() {
       }
       setFen(data.fen);
       setPlayHistory(h => [...h,{user_move:move,engine_move:data.engine_move}]);
-      if (data.game_over) setMessage(`Game over — ${data.result}`);
+      if (data.game_over) {
+        setMessage(`Game over — ${data.result}`);
+        saveGame([...playHistory,{user_move:move,engine_move:data.engine_move}], data.result);
+      }
     } catch(e) {
       setFen(prevFen);
       setPlayError(e instanceof Error ? e.message : "Engine unavailable");
     } finally { setThinking(false); }
+  };
+
+  const loadGames = async () => {
+    try { const d = await api("/games"); setGames(d.games || []); } catch {}
+  };
+
+  const saveGame = async (hist:any[], result:string) => {
+    try {
+      const g = new Chess(); let n = 0;
+      for (const h of hist) for (const m of [h.user_move, h.engine_move]) {
+        if (!m) continue;
+        const x = String(m);
+        if (/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(x)) g.move({from:x.slice(0,2),to:x.slice(2,4),promotion:x[4]}); else g.move(x);
+        n++;
+      }
+      g.setHeader("Event","ChessRL game");
+      g.setHeader("White", side==="white" ? USER : "ChessRL engine");
+      g.setHeader("Black", side==="white" ? "ChessRL engine" : USER);
+      await api("/games", {method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({pgn:g.pgn(),result:String(result||""),difficulty,engine_type:engineType,side,num_moves:n})});
+      loadGames();
+    } catch {}
   };
 
   const loadProfile = async () => {
@@ -275,12 +353,12 @@ export default function Home() {
       </div>
       <nav>
         {(["play","analysis","puzzles","coach","rules","profile"] as Tab[]).map(x =>
-          <button key={x} className={tab===x?"nav-active":""} onClick={()=>{setTab(x); if(x==="puzzles")loadPuzzles(); if(x==="rules")loadRules(""); if(x==="profile")loadProfile();}}>
+          <button key={x} className={tab===x?"nav-active":""} onClick={()=>{setTab(x); if(x==="puzzles")loadPuzzles(); if(x==="rules")loadRules(""); if(x==="profile"){loadProfile();loadGames();}}}>
             {x}
           </button>
         )}
       </nav>
-      <div className="online"><i/> ENGINE ONLINE</div>
+      <div className="online"><i/> {user.toUpperCase()}<button className="logout" onClick={onLogout}>LOG OUT</button></div>
     </header>
 
     <section className="hero">
@@ -375,6 +453,7 @@ export default function Home() {
     {tab==="profile" && <section className="content-grid">
       <Card><span className="eyebrow">PLAYER</span><div className="profile-score">{profile?.est_elo||800}</div><p>Estimated rating</p><div className="profile-line"><span>Games analyzed</span><b>{profile?.games_played||0}</b></div><div className="profile-line"><span>Avg CP loss</span><b>{profile?.avg_cp_loss||0}</b></div><div className="profile-line"><span>Primary weakness</span><b>{profile?.primary_weakness||"general"}</b></div></Card>
       <Card className="wide"><span className="eyebrow">RECENT GAMES</span><h2>Progress</h2><div className="history">{(profile?.recent_games||[]).map((g:any,i:number)=><div key={i}><span>{new Date(g.played_at).toLocaleDateString()}</span><b>{g.primary_weakness}</b><span>{g.avg_cp_loss} cp loss</span></div>)}</div></Card>
+      <Card className="wide"><span className="eyebrow">GAME HISTORY</span><h2>Games vs engine</h2><div className="history">{games.length===0?<div className="empty">No saved games yet. Finish a game and it will appear here.</div>:games.map((g:any)=><div key={g.id}><span>{new Date(g.played_at).toLocaleString()}</span><b>{g.result}</b><span>{g.difficulty} · {g.engine_type} · {g.num_moves} moves</span></div>)}</div></Card>
     </section>}
 
     <footer>CHESSRL <span>•</span> YOUR ENGINE. YOUR GAMES. YOUR PROGRESS.</footer>
