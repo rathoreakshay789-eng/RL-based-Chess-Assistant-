@@ -1,4 +1,6 @@
 import numpy as np
+import chess
+from chess_env.features import HalfKPExtractor
 from chess_env.board import Chess_game
 from mcts.search import MCTS
 from config import Config
@@ -19,6 +21,12 @@ def play_match(game, mcts1, mcts2):
             action_probs = mcts2.search(neutral_state)
           
         action = np.argmax(action_probs)
+        if player == -1:
+            _ex = HalfKPExtractor()
+            cm = _ex.idx_to_move(action, neutral_state)
+            om = chess.Move(chess.square_mirror(cm.from_square), chess.square_mirror(cm.to_square),
+                            promotion=cm.promotion)
+            action = _ex.move_to_idx(om)
         state = game.get_next_state(state, action)
         value, is_terminal = game.get_value_and_terminated(state, action)
 
@@ -34,7 +42,7 @@ def play_match(game, mcts1, mcts2):
         player = game.get_opponent(player)
 
 
-def evaluate(champion_network, challenger_network):
+def evaluate(champion_network, challenger_network, iteration=0):
 
     game = Chess_game()
     sims = Config.num_simulations
