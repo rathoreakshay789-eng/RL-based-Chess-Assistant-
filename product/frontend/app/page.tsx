@@ -401,6 +401,220 @@ function Board({
     </div>
   );
 }
+function PuzzleTrainer({
+  puzzle,
+  onNext
+}: {
+  puzzle: any;
+  onNext: () => void;
+}) {
+  const [positionFen, setPositionFen] = useState("");
+  const [solutionIndex, setSolutionIndex] = useState(0);
+  const [status, setStatus] = useState<
+    "playing" | "wrong" | "solved"
+  >("playing");
+  const [lastMove, setLastMove] = useState("");
+
+  useEffect(() => {
+    if (!puzzle) return;
+
+    try {
+      const g = new Chess(puzzle.fen);
+
+      // Lichess puzzle FEN is before the opponent's setup move.
+      // Play that move automatically so the user gets the actual puzzle position.
+      if (puzzle.first_move) {
+        const m = puzzle.first_move;
+        g.move({
+          from: m.slice(0, 2),
+          to: m.slice(2, 4),
+          promotion: m[4] as any
+        });
+      }
+
+      setPositionFen(g.fen());
+      setSolutionIndex(0);
+      setStatus("playing");
+      setLastMove("");
+    } catch {
+      setPositionFen(puzzle.fen);
+      setSolutionIndex(0);
+      setStatus("playing");
+      setLastMove("");
+    }
+  }, [puzzle?.puzzle_id]);
+
+  const handleMove = (move: string) => {
+    if (status === "solved") return;
+
+    const solution = puzzle?.solution || [];
+    const expected = solution[solutionIndex];
+
+    if (!expected) return;
+
+    // User played the wrong move.
+    if (move !== expected) {
+      setStatus("wrong");
+      setLastMove(move);
+      return;
+    }
+
+    try {
+      const g = new Chess(positionFen);
+
+      const played = g.move({
+        from: move.slice(0, 2),
+        to: move.slice(2, 4),
+        promotion: move[4] as any
+      });
+
+      soundOf(played, g);
+
+      const afterUserMove = g.fen();
+      const nextIndex = solutionIndex + 1;
+
+      setLastMove(move);
+
+      // Puzzle completed.
+      if (nextIndex >= solution.length) {
+        setPositionFen(afterUserMove);
+        setSolutionIndex(nextIndex);
+        setStatus("solved");
+        return;
+      }
+
+      // Show the user's correct move first.
+      setPositionFen(afterUserMove);
+      setSolutionIndex(nextIndex);
+      setStatus("playing");
+
+      // Then automatically play the opponent's response.
+      setTimeout(() => {
+        try {
+          const replyGame = new Chess(afterUserMove);
+          const reply = solution[nextIndex];
+
+          const replyMove = replyGame.move({
+            from: reply.slice(0, 2),
+            to: reply.slice(2, 4),
+            promotion: reply[4] as any
+          });
+
+          soundOf(replyMove, replyGame);
+          setPositionFen(replyGame.fen());
+          setSolutionIndex(nextIndex + 1);
+
+          // If that was the final move, puzzle is solved.
+          if (nextIndex + 1 >= solution.length) {
+            setStatus("solved");
+          }
+        } catch {
+          setStatus("solved");
+        }
+      }, 450);
+    } catch {
+      setStatus("wrong");
+    }
+  };
+
+  const retry = () => {
+    setStatus("playing");
+    setLastMove("");
+  };
+
+  if (!positionFen) return null;
+
+  const playerSide: Side =
+    new Chess(positionFen).turn() === "w"
+      ? "white"
+      : "black";
+
+  return (
+    <div className="puzzle-layout">
+      <div className="puzzle-board">
+        <Board
+          fen={positionFen}
+          side={playerSide}
+          onMove={handleMove}
+          disabled={
+            status === "solved" ||
+            status === "wrong"
+          }
+        />
+
+        <div className={`puzzle-status ${status}`}>
+          {status === "playing" && (
+            <>
+              <b>Your move</b>
+              <span>Find the best continuation.</span>
+            </>
+          )}
+
+          {status === "wrong" && (
+            <>
+              <b>Try again</b>
+              <span>That wasn't the correct move.</span>
+              <button
+                className="ghost-btn"
+                onClick={retry}
+              >
+                Retry
+              </button>
+            </>
+          )}
+
+          {status === "solved" && (
+            <>
+              <b>✓ Puzzle solved</b>
+              <span>Excellent. You found the continuation.</span>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="puzzle-info">
+        <span className="eyebrow">
+          TACTICAL TRAINER
+        </span>
+
+        <h2>
+          {puzzle?.theme || "Tactics"}
+        </h2>
+
+        <p>
+          Rating {puzzle?.rating || "—"} · Find the
+          best continuation.
+        </p>
+
+        {status === "playing" && (
+          <div className="puzzle-help">
+            Make your move on the board.
+          </div>
+        )}
+
+        {status === "wrong" && (
+          <div className="puzzle-error">
+            Incorrect move. Look for another tactical
+            idea.
+          </div>
+        )}
+
+        {status === "solved" && (
+          <div className="puzzle-success">
+            Puzzle completed successfully.
+          </div>
+        )}
+
+        <button
+          className="gold-btn"
+          onClick={onNext}
+        >
+          Next puzzle →
+        </button>
+      </div>
+    </div>
+  );
+}
 function GameReplay({
   game,
   onClose
@@ -1841,96 +2055,45 @@ function App({
       )}
 
       {tab === "puzzles" && (
-        <section className="content-grid">
-          <Card className="wide">
-            <div className="section-head">
-              <div>
-                <span className="eyebrow">
-                  TACTICAL TRAINER
-                </span>
+  <section className="content-grid">
+    <Card className="wide">
+      <div className="section-head">
+        <div>
+          <span className="eyebrow">
+            TACTICAL TRAINER
+          </span>
 
-                <h2>
-                  Train your weakness
-                </h2>
-              </div>
+          <h2>
+            Train your weakness
+          </h2>
+        </div>
 
-              <button
-                className="ghost-btn"
-                onClick={loadPuzzles}
-              >
-                Refresh
-              </button>
-            </div>
+        <button
+          className="ghost-btn"
+          onClick={loadPuzzles}
+        >
+          Refresh
+        </button>
+      </div>
 
-            {puzzles.length ===
-            0 ? (
-              <div className="empty big">
-                Play and analyze a few
-                games to unlock
-                personalized puzzles.
-              </div>
-            ) : (
-              <div className="puzzle-layout">
-                <div className="puzzle-board">
-                  <Board
-                    fen={
-                      puzzles[
-                        puzzleIndex
-                      ]?.fen ||
-                      new Chess().fen()
-                    }
-                    side="white"
-                    onMove={() => {}}
-                    disabled
-                  />
-                </div>
-
-                <div className="puzzle-info">
-                  <span className="eyebrow">
-                    PUZZLE{" "}
-                    {puzzleIndex + 1}/
-                    {puzzles.length}
-                  </span>
-
-                  <h2>
-                    {
-                      puzzles[
-                        puzzleIndex
-                      ]?.theme ||
-                      "Tactics"
-                    }
-                  </h2>
-
-                  <p>
-                    Rating{" "}
-                    {
-                      puzzles[
-                        puzzleIndex
-                      ]?.rating ||
-                      "—"
-                    }{" "}
-                    • Find the best
-                    continuation.
-                  </p>
-
-                  <button
-                    className="gold-btn"
-                    onClick={() =>
-                      setPuzzleIndex(
-                        (puzzleIndex +
-                          1) %
-                          puzzles.length
-                      )
-                    }
-                  >
-                    Next puzzle
-                  </button>
-                </div>
-              </div>
-            )}
-          </Card>
-        </section>
+      {puzzles.length === 0 ? (
+        <div className="empty big">
+          Play and analyze a few games to unlock
+          personalized puzzles.
+        </div>
+      ) : (
+        <PuzzleTrainer
+          puzzle={puzzles[puzzleIndex]}
+          onNext={() =>
+            setPuzzleIndex(
+              (puzzleIndex + 1) % puzzles.length
+            )
+          }
+        />
       )}
+    </Card>
+  </section>
+)}
 
       {tab === "coach" && (
         <section className="content-grid">
