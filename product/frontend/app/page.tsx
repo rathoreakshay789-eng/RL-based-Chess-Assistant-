@@ -34,27 +34,46 @@ function playSound(kind: "move"|"capture"|"check"|"end") {
     const ac = _ac as AudioContext;
     if (ac.state === "suspended") ac.resume();
     const t = ac.currentTime;
-    const tone = (f:number, st:number, d:number, type:OscillatorType, v:number) => {
-      const o = ac.createOscillator(), g = ac.createGain();
-      o.type = type; o.frequency.setValueAtTime(f, t+st);
-      o.frequency.exponentialRampToValueAtTime(f*0.5, t+st+d);
-      g.gain.setValueAtTime(v, t+st); g.gain.exponentialRampToValueAtTime(0.0001, t+st+d);
-      o.connect(g); g.connect(ac.destination); o.start(t+st); o.stop(t+st+d);
+    // wooden knock: band-passed noise click + short low body thump
+    const tap = (st:number, freq:number, vol:number, dur:number) => {
+      const n = Math.floor(ac.sampleRate*dur), buf = ac.createBuffer(1,n,ac.sampleRate), d = buf.getChannelData(0);
+      for (let i=0;i<n;i++) d[i] = (Math.random()*2-1)*Math.pow(1-i/n,3);
+      const src = ac.createBufferSource(), bp = ac.createBiquadFilter(), g = ac.createGain();
+      src.buffer = buf; bp.type = "bandpass"; bp.frequency.value = freq; bp.Q.value = 1.4; g.gain.value = vol;
+      src.connect(bp); bp.connect(g); g.connect(ac.destination); src.start(t+st);
+      const o = ac.createOscillator(), og = ac.createGain();
+      o.type = "sine"; o.frequency.setValueAtTime(freq/8, t+st); o.frequency.exponentialRampToValueAtTime(freq/16, t+st+0.08);
+      og.gain.setValueAtTime(vol*0.5, t+st); og.gain.exponentialRampToValueAtTime(0.0001, t+st+0.09);
+      o.connect(og); og.connect(ac.destination); o.start(t+st); o.stop(t+st+0.1);
     };
-    const noise = (st:number, d:number, v:number) => {
-      const n = Math.floor(ac.sampleRate*d), buf = ac.createBuffer(1,n,ac.sampleRate), data = buf.getChannelData(0);
-      for (let i=0;i<n;i++) data[i] = (Math.random()*2-1)*(1-i/n);
-      const src = ac.createBufferSource(), g = ac.createGain();
-      src.buffer = buf; g.gain.value = v; src.connect(g); g.connect(ac.destination); src.start(t+st);
+    // soft bell chime
+    const bell = (st:number, f:number, d:number, v:number) => {
+      [1,2.01,3.02].forEach((m,i) => {
+        const o = ac.createOscillator(), g = ac.createGain(), vv = v/(i+1)/1.5;
+        o.type = "sine"; o.frequency.value = f*m;
+        g.gain.setValueAtTime(0.0001, t+st);
+        g.gain.exponentialRampToValueAtTime(vv, t+st+0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, t+st+d);
+        o.connect(g); g.connect(ac.destination); o.start(t+st); o.stop(t+st+d);
+      });
     };
-    if (kind==="move") { tone(320,0,0.09,"triangle",0.4); noise(0,0.03,0.25); }
-    else if (kind==="capture") { tone(190,0,0.16,"triangle",0.6); noise(0,0.09,0.5); }
-    else if (kind==="check") { tone(900,0,0.12,"square",0.12); tone(680,0.13,0.2,"square",0.12); }
-    else { tone(520,0,0.25,"sine",0.3); tone(390,0.22,0.25,"sine",0.3); tone(260,0.44,0.45,"sine",0.3); }
+    if (kind==="move") tap(0,1800,1.0,0.05);
+    else if (kind==="capture") { tap(0,1300,1.6,0.07); tap(0.055,1700,1.0,0.05); }
+    else if (kind==="check") { bell(0,784,0.5,0.18); bell(0.12,1047,0.7,0.18); }
+    else { bell(0,659,0.8,0.2); bell(0.18,523,0.8,0.2); bell(0.36,392,1.2,0.22); }
   } catch {}
 }
 function soundOf(m:any, g:Chess) {
   playSound(g.isGameOver() ? "end" : g.inCheck() ? "check" : m?.captured ? "capture" : "move");
+}
+
+function evalOf(fen:string): {pct:number; label:string} {
+  const g = new Chess(fen);
+  if (g.isCheckmate()) return g.turn()==="w" ? {pct:0,label:"0-1"} : {pct:100,label:"1-0"};
+  const v: Record<string,number> = {p:1,n:3,b:3,r:5,q:9,k:0};
+  let d = 0;
+  for (const row of g.board()) for (const p of row) if (p) d += (p.color==="w"?1:-1)*v[p.type];
+  return {pct: 100/(1+Math.exp(-d/3.5)), label:(d>0?"+":"")+d.toFixed(1)};
 }
 
 function Board({
@@ -286,7 +305,7 @@ export default function Home() {
           </div>
         </div>
         <div className="game-grid">
-          <div className="eval-rail"><div className="eval-fill"/></div>
+          {(()=>{const ev=evalOf(fen);return <div className="eval-rail" title={`Material: ${ev.label}`} style={{justifyContent:side==="white"?"flex-end":"flex-start"}}><div className="eval-fill" style={{height:`${ev.pct}%`}}/></div>;})()}
           <Board fen={fen} side={side} onMove={playMove} disabled={thinking}/>
           <Card className="game-panel">
             <div className="opponent"><div className="avatar">♞</div><div><b>ChessRL AI</b><small>{thinking?"Thinking…":difficulty.toUpperCase()}</small></div><span className="dot"/></div>
